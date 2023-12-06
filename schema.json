@@ -1,0 +1,27 @@
+[
+  {
+    "table": "brands",
+    "destination": "brands",
+    "columns": [
+      "id",
+      "name",
+      "isActive",
+      "createdAt",
+      "updatedAt"
+    ]
+  },
+  {
+    "table": "products",
+    "destination": "products",
+    "columns": [
+      "id",
+      "name",
+      "isActive",
+      "price",
+      "popularity",
+      "brandId",
+      "createdAt",
+      "updatedAt"
+    ]
+  }
+]
