@@ -15,7 +15,7 @@ CREATE TABLE products (
     popularity integer,
     "brandId" text,
     "createdAt" timestamp with time zone NOT NULL DEFAULT now(),
-    "updatedAt" timestamp without time zone NOT NULL DEFAULT now(),
+    "updatedAt" timestamp with time zone NOT NULL DEFAULT now(),
     PRIMARY KEY (id),
     FOREIGN KEY ("brandId") REFERENCES public.brands (id) ON DELETE CASCADE
 );

@@ -11,16 +11,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/meilisearch/meilisearch-go"
 	"github.com/robfig/cron/v3"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // Constants
 const PG_CONNECTION_STRING = "postgresql://postgres:thisismypassword123456@db.tpmashrepkfstgbvpnno.supabase.co:5432/postgres"
-
-const MONGODB_CONNECTION_STRING = "mongodb+srv://yjhala58:thisismypassword123456@cluster0.qlvts0l.mongodb.net/mydb?retryWrites=true&w=majority"
 
 const WATCH_CHANNEL = "pgsync_watchers"
 
@@ -129,19 +125,19 @@ func main() {
 	TablesDestinationsMap := map[string]string{}
 	jsonSchemaData, err := os.ReadFile("schema.json")
 	if err != nil {
-		log.Fatalln("Error reading schema.json")
+		log.Println("Error reading schema.json")
 		panic(err)
 	}
 	var schema []SchemaObj
 	err = json.Unmarshal(jsonSchemaData, &schema)
 	if err != nil {
-		log.Fatalln("Error parsing schema.json")
+		log.Println("Error parsing schema.json")
 		panic(err)
 	}
-	log.Fatalln("schema.json parsed")
+	log.Println("schema.json parsed")
 	for _, s := range schema {
 		if TablesColumnsMap[s.Table] != nil {
-			log.Fatalln("Duplicate table:", s.Table)
+			log.Println("Duplicate table:", s.Table)
 			panic("Duplicate table")
 		}
 		TablesColumnsMap[s.Table] = s.Columns
@@ -151,62 +147,54 @@ func main() {
 	// Create PG Pool & Connection
 	pgPool, err := pgxpool.New(context.Background(), PG_CONNECTION_STRING)
 	if err != nil {
-		log.Fatalln("Error connecting to postgres")
+		log.Println("Error connecting to postgres")
 		panic(err)
 	}
 	defer pgPool.Close()
 	pgConn, err := pgPool.Acquire(Ctx)
 	if err != nil {
-		log.Fatalln("Failed to acquire connection from pool")
+		log.Println("Failed to acquire connection from pool")
 		panic(err)
 	}
 	defer pgConn.Release()
-	log.Fatalln("Connected to postgres")
+	log.Println("Connected to postgres")
 
 	// Setup Triggers & Watchers
 	_, err = pgConn.Exec(Ctx, CREATE_TRIGGER_FUNCTION_QUERY)
 	if err != nil {
-		log.Fatalln("Failed to run create trigger function query")
+		log.Println("Failed to run create trigger function query")
 		panic(err)
 	}
 	for _, s := range schema {
 		_, err = pgConn.Exec(Ctx, getSetupTriggerOnTableQuery(s.Table))
 		if err != nil {
-			log.Fatalln("Failed to setup trigger on table:", s.Table)
+			log.Println("Failed to setup trigger on table:", s.Table)
 			panic(err)
 		}
 	}
-	log.Fatalln("Setting up triggers and watchers done")
+	log.Println("Setting up triggers and watchers done")
 
-	// Create Mongo Client
-	mongoClient, err := mongo.Connect(Ctx, options.Client().ApplyURI(MONGODB_CONNECTION_STRING))
-	if err != nil {
-		log.Fatalln("Error connecting to mongodb")
-		panic(err)
+	// Create Meilisearch Client
+	meilisearchConfig := meilisearch.ClientConfig{
+		Host:   "http://localhost:7700",
+		APIKey: "masterKey",
 	}
-	defer mongoClient.Disconnect(Ctx)
-	mongoDB := mongoClient.Database("testdb")
-	log.Fatalln("Connected to Mongo DB")
-	// mongoColl := mongoDB.Collection("brands")
-	// var brands []any
-	// brandsCursor, _ := mongoColl.Find(Ctx, bson.M{})
-	// brandsCursor.All(Ctx, &brands)
-	// brandsJson, _ := json.Marshal(brands)
-	// fmt.Println("Brands =>", string(brandsJson))
+	meilisearchClient := meilisearch.NewClient(meilisearchConfig)
 
 	// Listen to PG Channel
 	_, err = pgConn.Exec(Ctx, "LISTEN "+WATCH_CHANNEL)
 	if err != nil {
-		log.Fatalln("Failed to Listen in channel:", WATCH_CHANNEL)
+		log.Println("Failed to Listen in channel:", WATCH_CHANNEL)
 		panic(err)
 	}
-	log.Fatalln("Listening \"" + WATCH_CHANNEL + "\" channel")
+	log.Println("Listening \"" + WATCH_CHANNEL + "\" channel")
 
 	MessageHashMap := make(map[string][]MessageHashData)
 	ChangeSet := make(map[string]map[string]ChangeSetData)
 	NotificationChannel := make(chan struct{})
 
 	go func() {
+
 		for {
 			select {
 			case <-NotificationChannel:
@@ -218,7 +206,7 @@ func main() {
 				{
 					notification, err := pgConn.Conn().WaitForNotification(Ctx)
 					if err != nil {
-						log.Fatalln(err)
+						log.Println(err)
 						continue
 					}
 
@@ -230,12 +218,12 @@ func main() {
 					md5Hash := splitPayload[0]
 					currPage, err := strconv.Atoi((splitPayload[1]))
 					if err != nil {
-						log.Fatalln("Error parsing currPage in notification payload:", splitPayload[1])
+						log.Println("Error parsing currPage in notification payload:", splitPayload[1])
 						continue
 					}
 					pageCount, err := strconv.Atoi(splitPayload[2])
 					if err != nil {
-						log.Fatalln("Error parsing pageCount in notification payload:", splitPayload[2])
+						log.Println("Error parsing pageCount in notification payload:", splitPayload[2])
 						continue
 					}
 					msgBody := splitPayload[3]
@@ -270,12 +258,12 @@ func main() {
 					var payload PayloadData
 					err = json.Unmarshal([]byte(fullPayload), &payload)
 					if err != nil {
-						log.Fatalln("Error parsing payload:", fullPayload)
+						log.Println("Error parsing payload:", fullPayload)
 						continue
 					}
 
 					if TablesColumnsMap[payload.Table] == nil {
-						log.Fatalln("Unknown table:", payload.Table)
+						log.Println("Unknown table:", payload.Table)
 						continue
 					}
 
@@ -306,7 +294,15 @@ func main() {
 						{
 							// fmt.Println("update")
 							ref := ChangeSet[key][key2]
-							if ref.Action != "insert" {
+							if ref.Action == "insert" {
+								ChangeSet[key][key2] = ChangeSetData{
+									ID:        payload.ID,
+									Table:     payload.Table,
+									Action:    ref.Action,
+									NewValues: payload.NewValues,
+								}
+								fmt.Println("update insert", payload.NewValues)
+							} else {
 								ChangeSet[key][key2] = ChangeSetData{
 									ID:        payload.ID,
 									Table:     payload.Table,
@@ -331,7 +327,7 @@ func main() {
 						}
 					default:
 						{
-							log.Fatalln("Unknown action:", payload.Action)
+							log.Println("Unknown action:", payload.Action)
 						}
 					}
 
@@ -351,7 +347,7 @@ func main() {
 	_, err = cj.AddFunc("*/2 * * * *", func() {
 		timestamp := time.Now().UTC().Truncate(time.Minute).Format(time.RFC3339)
 		key := "pgsync:" + timestamp
-		log.Fatalln("Running cron job at", key)
+		log.Println("Running cron job at", key)
 		go func() {
 			data := ChangeSet[key]
 			if data == nil {
@@ -372,7 +368,7 @@ func main() {
 			// 	return
 			// }
 			// defer pgConn2.Release()
-
+			// var ins, upd, del []interface{}
 			for _, d := range data {
 				columns := TablesColumnsMap[d.Table]
 				if columns == nil {
@@ -381,8 +377,6 @@ func main() {
 				if len(columns) == 0 {
 					continue
 				}
-
-				mongoCollection := mongoDB.Collection(TablesDestinationsMap[d.Table])
 
 				switch d.Action {
 				case "insert":
@@ -432,12 +426,8 @@ func main() {
 							toInsert[c] = d.NewValues[c]
 						}
 
-						_, err = mongoCollection.InsertOne(Ctx, toInsert)
-						if err != nil {
-							log.Fatalln("Error inserting data in mongodb:", err)
-							log.Fatalln(err)
-							continue
-						}
+						msResp, _ := meilisearchClient.Index(TablesDestinationsMap[d.Table]).AddDocuments([]interface{}{toInsert}, "id")
+						fmt.Println("inserted in MeiliSearch:", msResp)
 					}
 				case "update":
 					{
@@ -450,32 +440,35 @@ func main() {
 							toUpdate[c] = d.NewValues[c]
 						}
 
-						_, err = mongoCollection.UpdateOne(Ctx, bson.M{"id": d.ID}, bson.M{"$set": bson.M(toUpdate)})
+						msResp, err := meilisearchClient.Index(TablesDestinationsMap[d.Table]).UpdateDocuments([]interface{}{toUpdate}, "id")
 						if err != nil {
-							log.Fatalln("Error updating data in mongodb:", err)
-							log.Fatalln(err)
-							continue
+							fmt.Println(err)
+							fmt.Println("Failed to update in meilisearch")
 						}
+						fmt.Println("updated in MeiliSearch:", msResp)
 					}
 				case "delete":
 					{
-						_, err = mongoCollection.DeleteOne(Ctx, bson.M{"id": d.ID})
-						if err != nil {
-							log.Fatalln("Error deleting data in mongodb:", err)
-							log.Fatalln(err)
-							continue
+						toDelete := []string{
+							d.ID,
 						}
+						msResp, err := meilisearchClient.Index(TablesDestinationsMap[d.Table]).DeleteDocuments(toDelete)
+						if err != nil {
+							fmt.Println(err)
+							fmt.Println("Failed to delete in meilisearch")
+						}
+						fmt.Println("deleted in MeiliSearch:", msResp)
 					}
 				default:
 					{
-						log.Fatalln("Unknown action:", d.Action)
+						log.Println("Unknown action:", d.Action)
 					}
 				}
 			}
 		}()
 	})
 	if err != nil {
-		log.Fatalln("Error scheduling cron job")
+		log.Println("Error scheduling cron job")
 		panic(err)
 	}
 
@@ -485,62 +478,3 @@ func main() {
 	// Let the goroutine and cron run forever.
 	select {}
 }
-
-// package main
-
-// import (
-// 	"fmt"
-// 	"log"
-// 	"net/http"
-// )
-
-// type Site struct {
-// 	URL string
-// }
-
-// type Result struct {
-// 	URL    string
-// 	Status int
-// }
-
-// func main() {
-// 	log.Fatalln("worker pools in Go")
-
-// 	jobs := make(chan Site, 3)
-// 	results := make(chan Result, 3)
-
-// 	for w := 1; w <= 3; w++ {
-// 		go func(wId int) {
-// 			for site := range jobs {
-// 				log.Printf("Worker ID: %d\n", wId)
-// 				log.Printf(site.URL)
-// 				resp, err := http.Get(site.URL)
-// 				if err != nil {
-// 					log.Println(err.Error())
-// 				}
-// 				log.Printf("Worker ID: %d Done\n", wId)
-// 				results <- Result{
-// 					URL:    site.URL,
-// 					Status: resp.StatusCode,
-// 				}
-// 			}
-// 		}(w)
-// 	}
-
-// 	urls := []string{
-// 		"https://amazon.in",
-// 		"https://amazon.com",
-// 		"https://example.com",
-// 		"https://google.com",
-// 	}
-
-// 	for _, url := range urls {
-// 		jobs <- Site{URL: url}
-// 	}
-// 	close(jobs)
-
-// 	for a := 1; a <= 4; a++ {
-// 		result := <-results
-// 		log.Println(result)
-// 	}
-// }
