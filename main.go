@@ -91,9 +91,10 @@ func getTimestamp() (timestamp string) {
 }
 
 type SchemaObj = struct {
-	Table       string   `json:"table"`
-	Destination string   `json:"destination"`
-	Columns     []string `json:"columns"`
+	Table       string                   `json:"table"`
+	Destination string                   `json:"destination"`
+	Columns     []string                 `json:"columns"`
+	Relations   []map[string]interface{} `json:"relations"`
 }
 
 type MessageHashData = struct {
@@ -123,6 +124,7 @@ func main() {
 	// Parse schema.json
 	TablesColumnsMap := map[string][]string{}
 	TablesDestinationsMap := map[string]string{}
+	TablesRelations := make(map[string][]map[string]interface{})
 	jsonSchemaData, err := os.ReadFile("schema.json")
 	if err != nil {
 		log.Println("Error reading schema.json")
@@ -142,6 +144,7 @@ func main() {
 		}
 		TablesColumnsMap[s.Table] = s.Columns
 		TablesDestinationsMap[s.Table] = s.Destination
+		TablesRelations[s.Table] = s.Relations
 	}
 
 	// Create PG Pool & Connection
@@ -362,13 +365,13 @@ func main() {
 
 			fmt.Println("Processing data", len(data))
 
-			// pgConn2, err := pgPool.Acquire(Ctx)
-			// if err != nil {
-			// 	fmt.Println("Failed to acquire connection from pool in cron job")
-			// 	return
-			// }
-			// defer pgConn2.Release()
-			// var ins, upd, del []interface{}
+			pgConn2, err := pgPool.Acquire(Ctx)
+			if err != nil {
+				fmt.Println("Failed to acquire connection from pool in cron job")
+				return
+			}
+			defer pgConn2.Release()
+
 			for _, d := range data {
 				columns := TablesColumnsMap[d.Table]
 				if columns == nil {
@@ -381,42 +384,6 @@ func main() {
 				switch d.Action {
 				case "insert":
 					{
-						// query := "SELECT "
-						// for i, c := range columns {
-						// 	if i != 0 {
-						// 		query += ", "
-						// 	}
-						// 	query += "\"" + c + "\""
-						// }
-						// query += " FROM \"" + d.Table + "\" WHERE id = '" + d.ID + "'"
-
-						// rows, err := pgConn2.Query(Ctx, query)
-						// if err != nil {
-						// 	fmt.Println(err)
-						// 	continue
-						// }
-						// exists := rows.Next()
-						// if !exists {
-						// 	continue
-						// }
-
-						// cols := rows.FieldDescriptions()
-						// vals, err := rows.Values()
-						// rows.Close()
-						// if err != nil {
-						// 	fmt.Println(err)
-						// 	continue
-						// }
-
-						// result := make(map[string]any, len(cols))
-
-						// for i, key := range cols {
-						// 	result[string(key.Name)] = vals[i]
-						// }
-
-						// temp, _ := json.Marshal(result)
-						// fmt.Println(string(temp))
-
 						toInsert := make(map[string]any)
 						toInsert["id"] = d.ID
 						for _, c := range columns {
@@ -425,6 +392,11 @@ func main() {
 							}
 							toInsert[c] = d.NewValues[c]
 						}
+						r := TablesRelations[d.Table]
+						mujheKyaPta(Ctx, r, toInsert, pgConn2)
+
+						jdcjsdb, _ := json.Marshal(toInsert)
+						fmt.Println(string(jdcjsdb))
 
 						msResp, _ := meilisearchClient.Index(TablesDestinationsMap[d.Table]).AddDocuments([]interface{}{toInsert}, "id")
 						fmt.Println("inserted in MeiliSearch:", msResp)
@@ -477,4 +449,104 @@ func main() {
 
 	// Let the goroutine and cron run forever.
 	select {}
+}
+
+func mujheKyaPta(Ctx context.Context, r []map[string]interface{}, toInsert map[string]any, pgConn2 *pgxpool.Conn) {
+	for _, s := range r {
+		if s == nil {
+			continue
+		}
+
+		fmt.Println(s["columns"])
+		rColumns := s["columns"].([]interface{})
+		rTable := s["table"].(string)
+		rRelation := s["relation"].(string)
+		rRelationKey := s["relationKey"].(string)
+		rRelations, ok := s["relations"].([]interface{})
+
+		switch rRelation {
+		case "one-to-one":
+			query := "SELECT "
+			for i, c := range rColumns {
+				if i != 0 {
+					query += ", "
+				}
+				rc := c.(string)
+				query += "\"" + rc + "\""
+			}
+			query += " FROM \"" + rTable + "\" WHERE id = '" + toInsert[rRelationKey].(string) + "'"
+			rows, err := pgConn2.Query(Ctx, query)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			exists := rows.Next()
+			if !exists {
+				continue
+			}
+
+			cols := rows.FieldDescriptions()
+			vals, err := rows.Values()
+			rows.Close()
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+
+			result := make(map[string]interface{}, len(cols))
+
+			for i, key := range cols {
+				result[string(key.Name)] = vals[i]
+			}
+
+			v, _ := json.Marshal(result)
+			fmt.Println("KHDCKHDSJKHBFSKJFB", rTable, string(v))
+
+			if ok {
+				mujheKyaPta(Ctx, rRelations, result, pgConn2)
+			}
+
+			toInsert[rTable] = result
+
+		case "one-to-many":
+			query := "SELECT"
+			for i, c := range rColumns {
+				if i != 0 {
+					query += ", "
+				}
+				rc := c.(string)
+				query += "\"" + rc + "\""
+			}
+			query += " FROM \"" + rTable + "\" WHERE \"" + rRelationKey + "\" = '" + toInsert["id"].(string) + "'"
+			rows, err := pgConn2.Query(Ctx, query)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+
+			var results []map[string]any
+			for rows.Next() {
+				cols := rows.FieldDescriptions()
+				vals, _ := rows.Values()
+				result := make(map[string]any, len(cols))
+
+				for i, key := range cols {
+					result[string(key.Name)] = vals[i]
+				}
+				results = append(results, result)
+			}
+			fmt.Println("hhhjm", results)
+			rows.Close()
+
+			if ok {
+				for _, res2 := range results {
+					mujheKyaPta(Ctx, rRelations, res2, pgConn2)
+				}
+			} else {
+				fmt.Printf("Magical Type: %T", s["relations"])
+			}
+
+			toInsert[rTable] = results
+		}
+	}
 }
