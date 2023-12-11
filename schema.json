@@ -2,13 +2,12 @@
   {
     "table": "brands",
     "destination": "brands",
-    "columns": [
-      "id",
-      "name",
-      "isActive",
-      "createdAt",
-      "updatedAt"
-    ]
+    "columns": ["id", "name", "isActive", "createdAt", "updatedAt"]
+  },
+  {
+    "table": "categories",
+    "destination": "categories",
+    "columns": ["id", "name", "isActive", "createdAt", "updatedAt"]
   },
   {
     "table": "products",
@@ -22,6 +21,29 @@
       "brandId",
       "createdAt",
       "updatedAt"
+    ],
+    "relations": [
+      {
+        "table": "products_categories",
+        "relation": "one-to-many",
+        "relationKey": "productId",
+        "columns": [
+          "id",
+          "productId",
+          "categoryId",
+          "isPrimary",
+          "createdAt",
+          "updatedAt"
+        ],
+        "relations": [
+          {
+            "table": "categories",
+            "relation": "one-to-one",
+            "relationKey": "categoryId",
+            "columns": ["id", "name", "isActive", "createdAt", "updatedAt"]
+          }
+        ]
+      }
     ]
   }
 ]
