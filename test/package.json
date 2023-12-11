@@ -1,0 +1,11 @@
+{
+  "name": "test",
+  "version": "1.0.0",
+  "main": "gen.mjs",
+  "scripts": {
+    "start": "node ."
+  },
+  "dependencies": {
+    "@faker-js/faker": "^8.3.1"
+  }
+}
