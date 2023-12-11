@@ -24,6 +24,12 @@
     ],
     "relations": [
       {
+        "table": "brands",
+        "relation": "one-to-one",
+        "relationKey": "brandId",
+        "columns": ["id", "name", "isActive", "createdAt", "updatedAt"]
+      },
+      {
         "table": "products_categories",
         "relation": "one-to-many",
         "relationKey": "productId",
