@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -256,7 +255,7 @@ func main() {
 
 					delete(MessageHashMap, md5Hash)
 
-					// fmt.Println("payload:", fullPayload)
+					// log.Println("payload:", fullPayload)
 
 					var payload PayloadData
 					err = json.Unmarshal([]byte(fullPayload), &payload)
@@ -270,12 +269,12 @@ func main() {
 						continue
 					}
 
-					// fmt.Println(payload)
+					// log.Println(payload)
 
 					timestamp := getTimestamp()
 					key := "pgsync:" + timestamp
 					key2 := payload.Table + ":" + payload.ID
-					// fmt.Println(key, key2)
+					// log.Println(key, key2)
 
 					ref := ChangeSet[key]
 					if ref == nil {
@@ -285,7 +284,7 @@ func main() {
 					switch payload.Action {
 					case "insert":
 						{
-							// fmt.Println("insert")
+							// log.Println("insert")
 							ChangeSet[key][key2] = ChangeSetData{
 								ID:        payload.ID,
 								Table:     payload.Table,
@@ -295,7 +294,7 @@ func main() {
 						}
 					case "update":
 						{
-							// fmt.Println("update")
+							// log.Println("update")
 							ref := ChangeSet[key][key2]
 							if ref.Action == "insert" {
 								ChangeSet[key][key2] = ChangeSetData{
@@ -304,7 +303,7 @@ func main() {
 									Action:    ref.Action,
 									NewValues: payload.NewValues,
 								}
-								fmt.Println("update insert", payload.NewValues)
+								// log.Println("update insert", payload.NewValues)
 							} else {
 								ChangeSet[key][key2] = ChangeSetData{
 									ID:        payload.ID,
@@ -316,7 +315,7 @@ func main() {
 						}
 					case "delete":
 						{
-							// fmt.Println("delete")
+							// log.Println("delete")
 							ref := ChangeSet[key][key2]
 							if ref.Action == "insert" {
 								delete(ChangeSet[key], key2)
@@ -334,7 +333,7 @@ func main() {
 						}
 					}
 
-					// fmt.Println("Data synchronized!")
+					// log.Println("Data synchronized!")
 
 					// jsonBytes, _ := json.MarshalIndent(ChangeSet, "", "  ")
 					// _ = os.WriteFile("ChangeSet.json", jsonBytes, 0644)
@@ -363,11 +362,11 @@ func main() {
 
 			delete(ChangeSet, key)
 
-			fmt.Println("Processing data", len(data))
+			log.Println("Processing data", len(data))
 
 			pgConn2, err := pgPool.Acquire(Ctx)
 			if err != nil {
-				fmt.Println("Failed to acquire connection from pool in cron job")
+				log.Println("Failed to acquire connection from pool in cron job")
 				return
 			}
 			defer pgConn2.Release()
@@ -393,13 +392,15 @@ func main() {
 							toInsert[c] = d.NewValues[c]
 						}
 						r := TablesRelations[d.Table]
-						mujheKyaPta(Ctx, r, toInsert, pgConn2)
+						kyaMujhe(Ctx, r, toInsert, pgConn2)
 
-						jdcjsdb, _ := json.Marshal(toInsert)
-						fmt.Println(string(jdcjsdb))
-
-						msResp, _ := meilisearchClient.Index(TablesDestinationsMap[d.Table]).AddDocuments([]interface{}{toInsert}, "id")
-						fmt.Println("inserted in MeiliSearch:", msResp)
+						msResp, err := meilisearchClient.Index(TablesDestinationsMap[d.Table]).AddDocuments([]interface{}{toInsert}, "id")
+						if err != nil {
+							log.Println(err)
+							log.Println("Failed to insert in meilisearch")
+						} else {
+							log.Println("inserted in MeiliSearch:", msResp)
+						}
 					}
 				case "update":
 					{
@@ -411,13 +412,16 @@ func main() {
 							}
 							toUpdate[c] = d.NewValues[c]
 						}
+						r := TablesRelations[d.Table]
+						kyaMujhe(Ctx, r, toUpdate, pgConn2)
 
 						msResp, err := meilisearchClient.Index(TablesDestinationsMap[d.Table]).UpdateDocuments([]interface{}{toUpdate}, "id")
 						if err != nil {
-							fmt.Println(err)
-							fmt.Println("Failed to update in meilisearch")
+							log.Println(err)
+							log.Println("Failed to update in meilisearch")
+						} else {
+							log.Println("updated in MeiliSearch:", msResp)
 						}
-						fmt.Println("updated in MeiliSearch:", msResp)
 					}
 				case "delete":
 					{
@@ -426,10 +430,11 @@ func main() {
 						}
 						msResp, err := meilisearchClient.Index(TablesDestinationsMap[d.Table]).DeleteDocuments(toDelete)
 						if err != nil {
-							fmt.Println(err)
-							fmt.Println("Failed to delete in meilisearch")
+							log.Println(err)
+							log.Println("Failed to delete in meilisearch")
+						} else {
+							log.Println("deleted in MeiliSearch:", msResp)
 						}
-						fmt.Println("deleted in MeiliSearch:", msResp)
 					}
 				default:
 					{
@@ -451,18 +456,28 @@ func main() {
 	select {}
 }
 
-func mujheKyaPta(Ctx context.Context, r []map[string]interface{}, toInsert map[string]any, pgConn2 *pgxpool.Conn) {
+func kyaMujhe(Ctx context.Context, r []map[string]interface{}, toInsert map[string]any, pgConn2 *pgxpool.Conn) {
 	for _, s := range r {
 		if s == nil {
 			continue
 		}
 
-		fmt.Println(s["columns"])
 		rColumns := s["columns"].([]interface{})
 		rTable := s["table"].(string)
 		rRelation := s["relation"].(string)
 		rRelationKey := s["relationKey"].(string)
 		rRelations, ok := s["relations"].([]interface{})
+		var rRelations2 []map[string]interface{}
+
+		if ok {
+			for _, rel := range rRelations {
+				rRelations2 = make([]map[string]interface{}, len(rRelations))
+				temp, ok2 := rel.(map[string]interface{})
+				if ok2 {
+					rRelations2 = append(rRelations2, temp)
+				}
+			}
+		}
 
 		switch rRelation {
 		case "one-to-one":
@@ -477,7 +492,7 @@ func mujheKyaPta(Ctx context.Context, r []map[string]interface{}, toInsert map[s
 			query += " FROM \"" + rTable + "\" WHERE id = '" + toInsert[rRelationKey].(string) + "'"
 			rows, err := pgConn2.Query(Ctx, query)
 			if err != nil {
-				fmt.Println(err)
+				log.Println(err)
 				continue
 			}
 			exists := rows.Next()
@@ -489,7 +504,7 @@ func mujheKyaPta(Ctx context.Context, r []map[string]interface{}, toInsert map[s
 			vals, err := rows.Values()
 			rows.Close()
 			if err != nil {
-				fmt.Println(err)
+				log.Println(err)
 				continue
 			}
 
@@ -499,11 +514,8 @@ func mujheKyaPta(Ctx context.Context, r []map[string]interface{}, toInsert map[s
 				result[string(key.Name)] = vals[i]
 			}
 
-			v, _ := json.Marshal(result)
-			fmt.Println("KHDCKHDSJKHBFSKJFB", rTable, string(v))
-
-			if ok {
-				mujheKyaPta(Ctx, rRelations, result, pgConn2)
+			if rRelations2 != nil {
+				kyaMujhe(Ctx, rRelations2, result, pgConn2)
 			}
 
 			toInsert[rTable] = result
@@ -520,7 +532,7 @@ func mujheKyaPta(Ctx context.Context, r []map[string]interface{}, toInsert map[s
 			query += " FROM \"" + rTable + "\" WHERE \"" + rRelationKey + "\" = '" + toInsert["id"].(string) + "'"
 			rows, err := pgConn2.Query(Ctx, query)
 			if err != nil {
-				fmt.Println(err)
+				log.Println(err)
 				continue
 			}
 
@@ -535,15 +547,12 @@ func mujheKyaPta(Ctx context.Context, r []map[string]interface{}, toInsert map[s
 				}
 				results = append(results, result)
 			}
-			fmt.Println("hhhjm", results)
 			rows.Close()
 
-			if ok {
+			if rRelations2 != nil {
 				for _, res2 := range results {
-					mujheKyaPta(Ctx, rRelations, res2, pgConn2)
+					kyaMujhe(Ctx, rRelations2, res2, pgConn2)
 				}
-			} else {
-				fmt.Printf("Magical Type: %T", s["relations"])
 			}
 
 			toInsert[rTable] = results
