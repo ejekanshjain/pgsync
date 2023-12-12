@@ -370,7 +370,7 @@ func main() {
 				return
 			}
 			defer pgConn2.Release()
-
+			Obj := make(map[string]map[string]map[string]any)
 			for _, d := range data {
 				columns := TablesColumnsMap[d.Table]
 				if columns == nil {
@@ -378,6 +378,9 @@ func main() {
 				}
 				if len(columns) == 0 {
 					continue
+				}
+				if _, ok := Obj[d.Table]; !ok {
+					Obj[d.Table] = make(map[string]map[string]any)
 				}
 
 				switch d.Action {
@@ -394,13 +397,18 @@ func main() {
 						r := TablesRelations[d.Table]
 						kyaMujhe(Ctx, r, toInsert, pgConn2)
 
-						msResp, err := meilisearchClient.Index(TablesDestinationsMap[d.Table]).AddDocuments([]interface{}{toInsert}, "id")
-						if err != nil {
-							log.Println(err)
-							log.Println("Failed to insert in meilisearch")
-						} else {
-							log.Println("inserted in MeiliSearch:", msResp)
+						if _, ok := Obj[d.Table]["insert"]; !ok {
+							Obj[d.Table]["insert"] = make(map[string]any)
 						}
+						Obj[d.Table]["insert"][d.ID] = toInsert
+
+						// msResp, err := meilisearchClient.Index(TablesDestinationsMap[d.Table]).AddDocuments([]interface{}{toInsert}, "id")
+						// if err != nil {
+						// 	log.Println(err)
+						// 	log.Println("Failed to insert in meilisearch")
+						// } else {
+						// 	log.Println("inserted in MeiliSearch:", msResp)
+						// }
 					}
 				case "update":
 					{
@@ -414,27 +422,32 @@ func main() {
 						}
 						r := TablesRelations[d.Table]
 						kyaMujhe(Ctx, r, toUpdate, pgConn2)
-
-						msResp, err := meilisearchClient.Index(TablesDestinationsMap[d.Table]).UpdateDocuments([]interface{}{toUpdate}, "id")
-						if err != nil {
-							log.Println(err)
-							log.Println("Failed to update in meilisearch")
-						} else {
-							log.Println("updated in MeiliSearch:", msResp)
+						if _, ok := Obj[d.Table]["update"]; !ok {
+							Obj[d.Table]["update"] = make(map[string]any)
 						}
+						Obj[d.Table]["update"][d.ID] = toUpdate
+
+						// msResp, err := meilisearchClient.Index(TablesDestinationsMap[d.Table]).UpdateDocuments([]interface{}{toUpdate}, "id")
+						// if err != nil {
+						// 	log.Println(err)
+						// 	log.Println("Failed to update in meilisearch")
+						// } else {
+						// 	log.Println("updated in MeiliSearch:", msResp)
+						// }
 					}
 				case "delete":
 					{
-						toDelete := []string{
-							d.ID,
+
+						if _, ok := Obj[d.Table]["delete"]; !ok {
+							Obj[d.Table]["delete"] = make(map[string]any)
 						}
-						msResp, err := meilisearchClient.Index(TablesDestinationsMap[d.Table]).DeleteDocuments(toDelete)
-						if err != nil {
-							log.Println(err)
-							log.Println("Failed to delete in meilisearch")
-						} else {
-							log.Println("deleted in MeiliSearch:", msResp)
-						}
+						Obj[d.Table]["delete"][d.ID] = true
+						// if err != nil {
+						// 	log.Println(err)
+						// 	log.Println("Failed to delete in meilisearch")
+						// } else {
+						// 	log.Println("deleted in MeiliSearch:", msResp)
+						// }
 					}
 				default:
 					{
@@ -442,6 +455,194 @@ func main() {
 					}
 				}
 			}
+			for table, actmap := range Obj {
+				insertCount := 0
+				updateCount := 0
+				deleteCount := 0
+				for acttype, actions := range actmap {
+					switch acttype {
+					case "insert":
+						for range actions {
+							insertCount++
+						}
+					case "update":
+						for range actions {
+							updateCount++
+						}
+					case "delete":
+						for _, typeasst := range actions {
+							_, ok := typeasst.(string)
+							if !ok {
+								log.Println("failed typeassert")
+								continue
+							}
+							deleteCount++
+						}
+					default:
+						log.Printf("Unknown action type: %s", acttype)
+					}
+				}
+				toInsert := make([]any, insertCount)
+				toUpdate := make([]any, updateCount)
+				toDelete := make([]string, deleteCount)
+				for acttype, actions := range actmap {
+					switch acttype {
+					case "insert":
+						for _, typeasst := range actions {
+							toInsert = append(toInsert, typeasst)
+						}
+					case "update":
+						for _, typeasst := range actions {
+							toUpdate = append(toUpdate, typeasst)
+						}
+					case "delete":
+						for _, typeasst := range actions {
+							docID, ok := typeasst.(string)
+							if !ok {
+								log.Println("failed typeassert")
+								continue
+							}
+							toDelete = append(toDelete, docID)
+						}
+					default:
+						log.Printf("Unknown action type: %s", acttype)
+					}
+				}
+
+				if insertCount > 0 {
+					resp1, err1 := meilisearchClient.Index(table).AddDocuments(toInsert, "id")
+					if err1 != nil {
+						log.Println("Error inserting in meilisearch")
+						log.Println(err1)
+					} else {
+						log.Println("inserted in MeiliSearch:", resp1)
+					}
+				}
+				if updateCount > 0 {
+					resp2, err2 := meilisearchClient.Index(table).UpdateDocuments(toUpdate, "id")
+					if err2 != nil {
+						log.Println("Error updating in meilisearch")
+						log.Println(err2)
+					} else {
+						log.Println("updated in MeiliSearch:", resp2)
+					}
+				}
+				if deleteCount > 0 {
+					resp3, err3 := meilisearchClient.Index(table).DeleteDocuments(toDelete)
+					if err3 != nil {
+						log.Println("Error deleting in meilisearch")
+						log.Println(err3)
+					} else {
+						log.Println("deleted in MeiliSearch:", resp3)
+					}
+				}
+			}
+			/*
+				{
+					"products": {
+						"delete": { "2": true, "3": true, "5": true, "6": true, "8": true },
+						"insert": {
+							"5asdcvasdcasdv": {
+								"brandId": "30",
+								"brands": {
+									"createdAt": "2023-12-11T15:46:24.130216+05:30",
+									"id": "30",
+									"isActive": true,
+									"name": "Cruickshank, Legros and Murazik",
+									"updatedAt": "2023-12-11T15:46:24.130216+05:30"
+								},
+								"createdAt": "2023-12-12T10:33:06.625111+00:00",
+								"id": "5asdcvasdcasdv",
+								"isActive": true,
+								"name": "Practical Soft Mouse",
+								"popularity": null,
+								"price": 236.49,
+								"products_categories": null,
+								"updatedAt": "2023-12-12T10:33:06.625111+00:00"
+							},
+							"5asdcvasdv": {
+								"brandId": "30",
+								"brands": {
+									"createdAt": "2023-12-11T15:46:24.130216+05:30",
+									"id": "30",
+									"isActive": true,
+									"name": "Cruickshank, Legros and Murazik",
+									"updatedAt": "2023-12-11T15:46:24.130216+05:30"
+								},
+								"createdAt": "2023-12-12T10:33:03.595297+00:00",
+								"id": "5asdcvasdv",
+								"isActive": true,
+								"name": "Practical Soft Mouse",
+								"popularity": null,
+								"price": 236.49,
+								"products_categories": null,
+								"updatedAt": "2023-12-12T10:33:03.595297+00:00"
+							},
+							"6vascasdvfva": {
+								"brandId": "30",
+								"brands": {
+									"createdAt": "2023-12-11T15:46:24.130216+05:30",
+									"id": "30",
+									"isActive": true,
+									"name": "Cruickshank, Legros and Murazik",
+									"updatedAt": "2023-12-11T15:46:24.130216+05:30"
+								},
+								"createdAt": "2023-12-12T10:33:06.625111+00:00",
+								"id": "6vascasdvfva",
+								"isActive": true,
+								"name": "Practical Soft Mouse",
+								"popularity": null,
+								"price": 236.49,
+								"products_categories": null,
+								"updatedAt": "2023-12-12T10:33:06.625111+00:00"
+							},
+							"6vasfva": {
+								"brandId": "30",
+								"brands": {
+									"createdAt": "2023-12-11T15:46:24.130216+05:30",
+									"id": "30",
+									"isActive": true,
+									"name": "Cruickshank, Legros and Murazik",
+									"updatedAt": "2023-12-11T15:46:24.130216+05:30"
+								},
+								"createdAt": "2023-12-12T10:33:03.595297+00:00",
+								"id": "6vasfva",
+								"isActive": true,
+								"name": "Practical Soft Mouse",
+								"popularity": null,
+								"price": 236.49,
+								"products_categories": null,
+								"updatedAt": "2023-12-12T10:33:03.595297+00:00"
+							}
+						},
+						"update": {
+							"9": {
+								"brandId": "30",
+								"brands": {
+									"createdAt": "2023-12-11T15:46:24.130216+05:30",
+									"id": "30",
+									"isActive": true,
+									"name": "Cruickshank, Legros and Murazik",
+									"updatedAt": "2023-12-11T15:46:24.130216+05:30"
+								},
+								"createdAt": "2023-12-12T10:06:06.615386+00:00",
+								"id": "9",
+								"isActive": true,
+								"name": "cadvsfv",
+								"popularity": null,
+								"price": 236.49,
+								"products_categories": null,
+								"updatedAt": "2023-12-12T10:06:06.615386+00:00"
+							}
+						}
+					}
+				}
+			*/
+
+			log.Print(meilisearchClient)
+			j, _ := json.Marshal(Obj)
+			log.Print(string(j))
+
 		}()
 	})
 	if err != nil {
