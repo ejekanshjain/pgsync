@@ -460,8 +460,6 @@ func main() {
 				}
 
 				if len(toInsert) > 0 {
-					j, _ := json.Marshal(toInsert)
-					log.Println(string(j))
 					resp, err := meilisearchClient.Index(table).AddDocuments(toInsert, "id")
 					if err != nil {
 						log.Println("Error inserting in meilisearch")
