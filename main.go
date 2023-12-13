@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -472,34 +473,61 @@ func main() {
 				}
 
 				if len(toInsert) > 0 {
-					resp, err := meilisearchClient.Index(table).AddDocuments(toInsert, "id")
-					if err != nil {
-						log.Println("Error inserting in meilisearch")
-						log.Println(err)
-					} else {
-						log.Println("inserted in meilisearch:", resp)
+					var batchSize = 1000
+					var totalBatches = int(math.Ceil(float64(len(toInsert)) / float64(batchSize)))
+					for batchNumber := 0; batchNumber < totalBatches; batchNumber++ {
+						start := batchNumber * batchSize
+						end := start + batchSize
+						if end > len(toInsert) {
+							end = len(toInsert)
+						}
+						batch := toInsert[start:end]
+						resp, err := meilisearchClient.Index(table).AddDocuments(batch, "id")
+						if err != nil {
+							log.Println("Error inserting in meilisearch")
+							log.Println(err)
+						} else {
+							log.Println("inserted in meilisearch:", resp)
+						}
 					}
 				}
 
 				if len(toUpdate) > 0 {
-					fmt.Println("toUpdate")
-					resp, err := meilisearchClient.Index(table).UpdateDocuments(toUpdate, "id")
-					fmt.Println("toUpdate Done")
-					if err != nil {
-						log.Println("Error updating in meilisearch")
-						log.Println(err)
-					} else {
-						log.Println("updated in meilisearch:", resp)
+					var batchSize = 1000
+					var totalBatches = int(math.Ceil(float64(len(toUpdate)) / float64(batchSize)))
+					for batchNumber := 0; batchNumber < totalBatches; batchNumber++ {
+						start := batchNumber * batchSize
+						end := start + batchSize
+						if end > len(toUpdate) {
+							end = len(toUpdate)
+						}
+						batch := toUpdate[start:end]
+						resp, err := meilisearchClient.Index(table).AddDocuments(batch, "id")
+						if err != nil {
+							log.Println("Error updating in meilisearch")
+							log.Println(err)
+						} else {
+							log.Println("updated in meilisearch:", resp)
+						}
 					}
 				}
-
 				if len(toDelete) > 0 {
-					resp, err := meilisearchClient.Index(table).DeleteDocuments(toDelete)
-					if err != nil {
-						log.Println("Error deleting in meilisearch")
-						log.Println(err)
-					} else {
-						log.Println("deleted in meilisearch:", resp)
+					var batchSize = 1000
+					var totalBatches = int(math.Ceil(float64(len(toDelete)) / float64(batchSize)))
+					for batchNumber := 0; batchNumber < totalBatches; batchNumber++ {
+						start := batchNumber * batchSize
+						end := start + batchSize
+						if end > len(toDelete) {
+							end = len(toDelete)
+						}
+						batch := toDelete[start:end]
+						resp, err := meilisearchClient.Index(table).DeleteDocuments(batch)
+						if err != nil {
+							log.Println("Error deleting in meilisearch")
+							log.Println(err)
+						} else {
+							log.Println("deleted in meilisearch:", resp)
+						}
 					}
 				}
 			}
