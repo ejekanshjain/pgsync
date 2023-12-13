@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -15,7 +17,7 @@ import (
 )
 
 // Constants
-const PG_CONNECTION_STRING = "postgresql://postgres:thisismypassword123456@db.tpmashrepkfstgbvpnno.supabase.co:5432/postgres"
+const PG_CONNECTION_STRING = "postgresql://postgres:postgres@192.168.2.123:5432/test"
 
 const WATCH_CHANNEL = "pgsync_watchers"
 
@@ -470,6 +472,8 @@ func main() {
 				}
 
 				if len(toUpdate) > 0 {
+					j, _ := json.Marshal(toUpdate)
+					fmt.Println(string(j))
 					resp, err := meilisearchClient.Index(table).UpdateDocuments(toUpdate, "id")
 					if err != nil {
 						log.Println("Error updating in meilisearch")
@@ -558,7 +562,12 @@ func processRelationsRecursively(Ctx context.Context, r []map[string]interface{}
 			result := make(map[string]interface{}, len(cols))
 
 			for i, key := range cols {
-				result[string(key.Name)] = vals[i]
+				maybeUUID, ok := vals[i].([16]uint8)
+				if ok {
+					result[string(key.Name)] = parseUUID(maybeUUID)
+				} else {
+					result[string(key.Name)] = vals[i]
+				}
 			}
 
 			if rRelations2 != nil {
@@ -590,7 +599,12 @@ func processRelationsRecursively(Ctx context.Context, r []map[string]interface{}
 				result := make(map[string]any, len(cols))
 
 				for i, key := range cols {
-					result[string(key.Name)] = vals[i]
+					maybeUUID, ok := vals[i].([16]uint8)
+					if ok {
+						result[string(key.Name)] = parseUUID(maybeUUID)
+					} else {
+						result[string(key.Name)] = vals[i]
+					}
 				}
 				results = append(results, result)
 			}
@@ -605,4 +619,17 @@ func processRelationsRecursively(Ctx context.Context, r []map[string]interface{}
 			toInsert[rTable] = results
 		}
 	}
+}
+
+func parseUUID(bytesSlice [16]uint8) string {
+	byteSlice := make([]byte, 16)
+	for i, b := range bytesSlice {
+		byteSlice[i] = byte(b)
+	}
+
+	hexString := hex.EncodeToString(byteSlice)
+
+	uuidString := fmt.Sprintf("%s-%s-%s-%s-%s", hexString[:8], hexString[8:12], hexString[12:16], hexString[16:20], hexString[20:])
+
+	return uuidString
 }
