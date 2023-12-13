@@ -400,12 +400,34 @@ func main() {
 			defer pgConn2.Release()
 			FinalData := make(map[string]map[string][]interface{})
 			count := 1
+			const batchSize = 20
+			totalItems := len(data)
+			batches := batchSize / totalItems
+			if batchSize%totalItems != 0 {
+				batches++
+			}
+			for i := 0; i < batches; i++ {
+				start := i * batchSize
+				end := start + batchSize
+				if end > totalItems {
+					end = totalItems
+				}
+				batchdata := make(map[string]ChangeSetData)
+				for p, d := range data {
+					pstr, _ := strconv.Atoi(p)
+					if pstr >= start && pstr < end {
+						batchdata[p] = d
+					}
+				}
+			}
+
 			for p, d := range data {
 				fmt.Println(p, len(data), count)
 				count++
 				columns := TablesColumnsMap[d.Table]
 				if columns == nil {
 					continue
+
 				}
 				if len(columns) == 0 {
 					continue
