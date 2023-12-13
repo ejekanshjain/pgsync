@@ -19,6 +19,10 @@ import (
 // Constants
 const PG_CONNECTION_STRING = "postgresql://postgres:postgres@192.168.2.123:5432/test"
 
+const MEILISEARCH_HOST = "http://localhost:7700"
+
+const MEILISEARCH_KEY = "masterKey"
+
 const WATCH_CHANNEL = "pgsync_watchers"
 
 const MESSAGE_SEPARATOR = "__:)__"
@@ -81,11 +85,11 @@ FOR EACH ROW EXECUTE PROCEDURE pgsync_notify_trigger();`
 
 func getTimestamp() (timestamp string) {
 	now := time.Now().UTC().Truncate(time.Minute)
-	minutes := now.Minute()
-	mod := minutes % 2
-	toIncrement := 2 - mod
+	// minutes := now.Minute()
+	// mod := minutes % 2
+	// toIncrement := 2 - mod
 
-	now = now.Add(time.Duration(toIncrement) * time.Minute)
+	now = now.Add(time.Duration(1) * time.Minute)
 
 	timestamp = now.Format(time.RFC3339)
 	return
@@ -180,8 +184,8 @@ func main() {
 
 	// Create Meilisearch Client
 	meilisearchConfig := meilisearch.ClientConfig{
-		Host:   "http://localhost:7700",
-		APIKey: "masterKey",
+		Host:   MEILISEARCH_HOST,
+		APIKey: MEILISEARCH_KEY,
 	}
 	meilisearchClient := meilisearch.NewClient(meilisearchConfig)
 
@@ -348,11 +352,12 @@ func main() {
 	cj := cron.New()
 
 	// Schedule the cron job to run every 10 minutes
-	_, err = cj.AddFunc("*/2 * * * *", func() {
+	_, err = cj.AddFunc("* * * * *", func() {
 		timestamp := time.Now().UTC().Truncate(time.Minute).Format(time.RFC3339)
 		key := "pgsync:" + timestamp
 		log.Println("Running cron job at", key)
 		go func() {
+			StartTime := time.Now()
 			data := ChangeSet[key]
 			if data == nil {
 				return
@@ -373,7 +378,10 @@ func main() {
 			}
 			defer pgConn2.Release()
 			FinalData := make(map[string]map[string][]interface{})
-			for _, d := range data {
+			count := 1
+			for p, d := range data {
+				fmt.Println(p, len(data), count)
+				count++
 				columns := TablesColumnsMap[d.Table]
 				if columns == nil {
 					continue
@@ -472,9 +480,9 @@ func main() {
 				}
 
 				if len(toUpdate) > 0 {
-					j, _ := json.Marshal(toUpdate)
-					fmt.Println(string(j))
+					fmt.Println("toUpdate")
 					resp, err := meilisearchClient.Index(table).UpdateDocuments(toUpdate, "id")
+					fmt.Println("toUpdate Done")
 					if err != nil {
 						log.Println("Error updating in meilisearch")
 						log.Println(err)
@@ -493,6 +501,8 @@ func main() {
 					}
 				}
 			}
+
+			log.Println("Data processed in", time.Since(StartTime))
 		}()
 	})
 	if err != nil {
@@ -532,6 +542,9 @@ func processRelationsRecursively(Ctx context.Context, r []map[string]interface{}
 
 		switch rRelation {
 		case "one-to-one":
+			if toInsert[rRelationKey] == nil {
+				continue
+			}
 			query := "SELECT "
 			for i, c := range rColumns {
 				if i != 0 {
