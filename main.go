@@ -19,6 +19,8 @@ import (
 // Constants
 const PG_CONNECTION_STRING = "postgresql://postgres:postgres@192.168.2.123:5432/test"
 
+// UPDATE "Products" SET "updatedAt" = now() WHERE id IN (SELECT id FROM "Products" LIMIT 10000);
+
 const MEILISEARCH_HOST = "http://localhost:7700"
 
 const MEILISEARCH_KEY = "masterKey"
