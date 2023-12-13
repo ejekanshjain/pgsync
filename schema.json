@@ -1,5 +1,76 @@
 [
   {
+    "table": "Brands",
+    "destination": "Brands",
+    "columns": [
+      "id",
+      "name",
+      "inActive",
+      "slug",
+      "imageId",
+      "createdAt",
+      "updatedAt"
+    ],
+    "relations": [
+      {
+        "table": "Resources",
+        "relation": "one-to-one",
+        "relationKey": "imageId",
+        "columns": ["id", "filename", "url", "cdnUrl"]
+      },
+      {
+        "table": "BrandData",
+        "relation": "one-to-many",
+        "relationKey": "brandId",
+        "columns": ["id", "brandId", "itemFieldId", "value"],
+        "relations": [
+          {
+            "table": "ItemFields",
+            "relation": "one-to-one",
+            "relationKey": "itemFieldId",
+            "columns": ["id", "name", "type", "fieldType"]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "table": "Categories",
+    "destination": "Categories",
+    "columns": [
+      "id",
+      "name",
+      "inActive",
+      "slug",
+      "parentId",
+      "imageId",
+      "createdAt",
+      "updatedAt"
+    ],
+    "relations": [
+      {
+        "table": "Resources",
+        "relation": "one-to-one",
+        "relationKey": "imageId",
+        "columns": ["id", "filename", "url", "cdnUrl"]
+      },
+      {
+        "table": "CategoryData",
+        "relation": "one-to-many",
+        "relationKey": "categoryId",
+        "columns": ["id", "categoryId", "itemFieldId", "value"],
+        "relations": [
+          {
+            "table": "ItemFields",
+            "relation": "one-to-one",
+            "relationKey": "itemFieldId",
+            "columns": ["id", "name", "type", "fieldType"]
+          }
+        ]
+      }
+    ]
+  },
+  {
     "table": "Products",
     "destination": "Products",
     "columns": [
@@ -105,6 +176,65 @@
                 "columns": ["id", "filename", "url", "cdnUrl"]
               }
             ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "table": "WebsiteOptions",
+    "schema": "public",
+    "columns": [
+      "id",
+      "name",
+      "inputType",
+      "order",
+      "productId",
+      "inActive",
+      "required",
+      "isShippingOption",
+      "price",
+      "cost",
+      "createdAt",
+      "updatedAt"
+    ],
+    "relations": [
+      {
+        "table": "WebsiteOptionsSelections",
+        "relation": "one-to-many",
+        "relationKey": "websiteOptionId",
+        "columns": [
+          "id",
+          "name",
+          "websiteOptionId",
+          "order",
+          "inActive",
+          "price",
+          "cost",
+          "imageId",
+          "createdAt",
+          "updatedAt"
+        ],
+        "relations": [
+          {
+            "table": "Resources",
+            "relation": "one-to-one",
+            "relationKey": "imageId",
+            "columns": ["id", "filename", "url", "cdnUrl"]
+          }
+        ]
+      },
+      {
+        "table": "WebsiteOptionData",
+        "relation": "one-to-many",
+        "relationKey": "websiteOptionId",
+        "columns": ["id", "websiteOptionId", "itemFieldId", "value"],
+        "relations": [
+          {
+            "table": "ItemFields",
+            "relation": "one-to-one",
+            "relationKey": "itemFieldId",
+            "columns": ["id", "name", "type", "fieldType"]
           }
         ]
       }

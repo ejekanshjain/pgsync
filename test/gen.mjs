@@ -1,10 +1,13 @@
 import { faker } from '@faker-js/faker'
-import { writeFile } from 'fs/promises'
+import { mkdir, writeFile } from 'fs/promises'
 
 const getRandomIn = (min, max) =>
   Math.floor(Math.random() * (max - min + 1)) + min
 
 const main = async () => {
+  try {
+    await mkdir('sql')
+  } catch (err) {}
   let brandsString = 'INSERT INTO brands (id, name) VALUES '
   for (let i = 1; i <= 50; i++) {
     if (i !== 1) brandsString += ','
@@ -50,6 +53,16 @@ const main = async () => {
   }
   productsCategoriesString += ';'
   await writeFile('sql/products_categories.sql', productsCategoriesString)
+
+  const merged =
+    brandsString +
+    '\n' +
+    categoriesString +
+    '\n' +
+    productsString +
+    '\n' +
+    productsCategoriesString
+  await writeFile('sql/merged.sql', merged)
 }
 
 main()
