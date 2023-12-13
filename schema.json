@@ -52,6 +52,32 @@
         ]
       },
       {
+        "table": "ProductPricingLevels",
+        "relation": "one-to-many",
+        "relationKey": "productId",
+        "columns": [
+          "id",
+          "pricingLevelId",
+          "pricingQuantityId",
+          "productId",
+          "value"
+        ],
+        "relations": [
+          {
+            "table": "PricingLevels",
+            "relation": "one-to-one",
+            "relationKey": "pricingLevelId",
+            "columns": ["id", "name"]
+          },
+          {
+            "table": "ProductPricingQuantities",
+            "relation": "one-to-one",
+            "relationKey": "pricingQuantityId",
+            "columns": ["id", "quantity"]
+          }
+        ]
+      },
+      {
         "table": "ProductMedia",
         "relation": "one-to-many",
         "relationKey": "productId",
