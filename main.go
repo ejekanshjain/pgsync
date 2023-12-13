@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -392,100 +393,108 @@ func main() {
 
 			log.Println("Processing data", len(data))
 
-			pgConn2, err := pgPool.Acquire(Ctx)
-			if err != nil {
-				log.Println("Failed to acquire connection from pool in cron job")
-				return
-			}
-			defer pgConn2.Release()
 			FinalData := make(map[string]map[string][]interface{})
-			count := 1
-			const batchSize = 20
-			totalItems := len(data)
-			batches := batchSize / totalItems
-			if batchSize%totalItems != 0 {
-				batches++
-			}
-			for i := 0; i < batches; i++ {
-				start := i * batchSize
-				end := start + batchSize
-				if end > totalItems {
-					end = totalItems
-				}
-				batchdata := make(map[string]ChangeSetData)
-				for p, d := range data {
-					pstr, _ := strconv.Atoi(p)
-					if pstr >= start && pstr < end {
-						batchdata[p] = d
-					}
-				}
-			}
 
+			allBatches := make([]map[string]ChangeSetData, 0)
+			batchData := make(map[string]ChangeSetData)
+			tempCount := 0
 			for p, d := range data {
-				fmt.Println(p, len(data), count)
-				count++
-				columns := TablesColumnsMap[d.Table]
-				if columns == nil {
-					continue
-
+				if tempCount > 9 {
+					allBatches = append(allBatches, batchData)
+					batchData = make(map[string]ChangeSetData)
+					tempCount = 0
 				}
-				if len(columns) == 0 {
-					continue
-				}
-				if _, ok := FinalData[d.Table]; !ok {
-					FinalData[d.Table] = make(map[string][]interface{})
-				}
-
-				switch d.Action {
-				case "insert":
-					{
-						toInsert := make(map[string]any)
-						toInsert["id"] = d.ID
-						for _, c := range columns {
-							if c == "id" {
-								continue
-							}
-							toInsert[c] = d.NewValues[c]
-						}
-						r := TablesRelations[d.Table]
-						processRelationsRecursively(Ctx, r, toInsert, pgConn2)
-
-						if _, ok := FinalData[d.Table]["insert"]; !ok {
-							FinalData[d.Table]["insert"] = make([]interface{}, 0)
-						}
-						FinalData[d.Table]["insert"] = append(FinalData[d.Table]["insert"], toInsert)
-					}
-				case "update":
-					{
-						toUpdate := make(map[string]any)
-						toUpdate["id"] = d.ID
-						for _, c := range columns {
-							if c == "id" {
-								continue
-							}
-							toUpdate[c] = d.NewValues[c]
-						}
-						r := TablesRelations[d.Table]
-						processRelationsRecursively(Ctx, r, toUpdate, pgConn2)
-
-						if _, ok := FinalData[d.Table]["update"]; !ok {
-							FinalData[d.Table]["update"] = make([]interface{}, 0)
-						}
-						FinalData[d.Table]["update"] = append(FinalData[d.Table]["update"], toUpdate)
-					}
-				case "delete":
-					{
-						if _, ok := FinalData[d.Table]["delete"]; !ok {
-							FinalData[d.Table]["delete"] = make([]interface{}, 0)
-						}
-						FinalData[d.Table]["delete"] = append(FinalData[d.Table]["delete"], d.ID)
-					}
-				default:
-					{
-						log.Println("Unknown action:", d.Action)
-					}
-				}
+				batchData[p] = d
+				tempCount++
 			}
+			if len(batchData) > 0 {
+				allBatches = append(allBatches, batchData)
+			}
+			var wg sync.WaitGroup
+			var mutex sync.Mutex
+			for i2, b := range allBatches {
+				wg.Add(1)
+				fmt.Println(i2, len(b))
+				go func(batch2 map[string]ChangeSetData) {
+					defer wg.Done()
+					pgConn2, err := pgPool.Acquire(Ctx)
+					if err != nil {
+						log.Println("Failed to acquire connection from pool in cron job")
+						return
+					}
+					defer pgConn2.Release()
+					for _, d := range batch2 {
+						columns := TablesColumnsMap[d.Table]
+						if columns == nil {
+							continue
+						}
+						if len(columns) == 0 {
+							continue
+						}
+						mutex.Lock()
+						if _, ok := FinalData[d.Table]; !ok {
+							FinalData[d.Table] = make(map[string][]interface{})
+						}
+						mutex.Unlock()
+
+						switch d.Action {
+						case "insert":
+							{
+								toInsert := make(map[string]any)
+								toInsert["id"] = d.ID
+								for _, c := range columns {
+									if c == "id" {
+										continue
+									}
+									toInsert[c] = d.NewValues[c]
+								}
+								r := TablesRelations[d.Table]
+								processRelationsRecursively(Ctx, r, toInsert, pgConn2)
+
+								mutex.Lock()
+								if _, ok := FinalData[d.Table]["insert"]; !ok {
+									FinalData[d.Table]["insert"] = make([]interface{}, 0)
+								}
+								FinalData[d.Table]["insert"] = append(FinalData[d.Table]["insert"], toInsert)
+								mutex.Unlock()
+							}
+						case "update":
+							{
+								toUpdate := make(map[string]any)
+								toUpdate["id"] = d.ID
+								for _, c := range columns {
+									if c == "id" {
+										continue
+									}
+									toUpdate[c] = d.NewValues[c]
+								}
+								r := TablesRelations[d.Table]
+								processRelationsRecursively(Ctx, r, toUpdate, pgConn2)
+								mutex.Lock()
+								if _, ok := FinalData[d.Table]["update"]; !ok {
+									FinalData[d.Table]["update"] = make([]interface{}, 0)
+								}
+								FinalData[d.Table]["update"] = append(FinalData[d.Table]["update"], toUpdate)
+								mutex.Unlock()
+							}
+						case "delete":
+							{
+								mutex.Lock()
+								if _, ok := FinalData[d.Table]["delete"]; !ok {
+									FinalData[d.Table]["delete"] = make([]interface{}, 0)
+								}
+								FinalData[d.Table]["delete"] = append(FinalData[d.Table]["delete"], d.ID)
+								mutex.Unlock()
+							}
+						default:
+							{
+								log.Println("Unknown action:", d.Action)
+							}
+						}
+					}
+				}(b)
+			}
+			wg.Wait()
 
 			for table, actionsMap := range FinalData {
 				var toInsert []interface{}
