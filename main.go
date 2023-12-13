@@ -13,18 +13,26 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 	"github.com/meilisearch/meilisearch-go"
 	"github.com/robfig/cron/v3"
 )
 
+var (
+	PG_CONNECTION_STRING string
+	MEILISEARCH_HOST     string
+	MEILISEARCH_KEY      string
+	SCHEMA_PATH          string
+)
+
 // Constants
-const PG_CONNECTION_STRING = "postgresql://postgres:postgres@192.168.2.123:5432/test"
+// const PG_CONNECTION_STRING = "postgresql://postgres:postgres@192.168.2.123:5432/test"
 
 // UPDATE "Products" SET "updatedAt" = now() WHERE id IN (SELECT id FROM "Products" LIMIT 10000);
 
-const MEILISEARCH_HOST = "http://localhost:7700"
+// const MEILISEARCH_HOST = "http://localhost:7700"
 
-const MEILISEARCH_KEY = "masterKey"
+// const MEILISEARCH_KEY = "masterKey"
 
 const WATCH_CHANNEL = "pgsync_watchers"
 
@@ -126,25 +134,35 @@ type ChangeSetData = struct {
 }
 
 func main() {
+
+	//env
+	if err := godotenv.Load(); err != nil {
+		log.Fatal("Error loading .env file")
+	}
+	PG_CONNECTION_STRING = os.Getenv("PG_CONNECTION_STRING")
+	MEILISEARCH_HOST = os.Getenv("MEILISEARCH_HOST")
+	MEILISEARCH_KEY = os.Getenv("MEILISEARCH_KEY")
+	SCHEMA_PATH = os.Getenv("SCHEMA_PATH")
+
 	// Create Context
 	Ctx := context.Background()
 
-	// Parse schema.json
+	// Parse SCHEMA_PATH
 	TablesColumnsMap := map[string][]string{}
 	TablesDestinationsMap := map[string]string{}
 	TablesRelations := make(map[string][]map[string]interface{})
-	jsonSchemaData, err := os.ReadFile("schema.json")
+	jsonSchemaData, err := os.ReadFile(SCHEMA_PATH)
 	if err != nil {
-		log.Println("Error reading schema.json")
+		log.Println("Error reading SCHEMA_PATH")
 		panic(err)
 	}
 	var schema []SchemaObj
 	err = json.Unmarshal(jsonSchemaData, &schema)
 	if err != nil {
-		log.Println("Error parsing schema.json")
+		log.Println("Error parsing SCHEMA_PATH")
 		panic(err)
 	}
-	log.Println("schema.json parsed")
+	log.Println("SCHEMA_PATH parsed")
 	for _, s := range schema {
 		if TablesColumnsMap[s.Table] != nil {
 			log.Println("Duplicate table:", s.Table)
@@ -502,7 +520,7 @@ func main() {
 							end = len(toUpdate)
 						}
 						batch := toUpdate[start:end]
-						resp, err := meilisearchClient.Index(table).AddDocuments(batch, "id")
+						resp, err := meilisearchClient.Index(table).UpdateDocuments(batch, "id")
 						if err != nil {
 							log.Println("Error updating in meilisearch")
 							log.Println(err)
