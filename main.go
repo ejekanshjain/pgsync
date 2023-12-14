@@ -18,21 +18,14 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
+// Constants
+
 var (
 	PG_CONNECTION_STRING string
 	MEILISEARCH_HOST     string
 	MEILISEARCH_KEY      string
 	SCHEMA_PATH          string
 )
-
-// Constants
-// const PG_CONNECTION_STRING = "postgresql://postgres:postgres@192.168.2.123:5432/test"
-
-// UPDATE "Products" SET "updatedAt" = now() WHERE id IN (SELECT id FROM "Products" LIMIT 10000);
-
-// const MEILISEARCH_HOST = "http://localhost:7700"
-
-// const MEILISEARCH_KEY = "masterKey"
 
 const WATCH_CHANNEL = "pgsync_watchers"
 
@@ -41,6 +34,8 @@ const MESSAGE_SEPARATOR = "__:)__"
 const MESSAGE_LENGTH_LIMIT = "2000"
 
 const BATCH_SIZE = 1000
+
+const MAX_WORKER = 20
 
 const CREATE_TRIGGER_FUNCTION_QUERY = `CREATE OR REPLACE FUNCTION pgsync_notify_trigger() RETURNS trigger AS $$
 DECLARE
@@ -90,6 +85,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;`
 
+// Types
 type SchemaObj = struct {
 	Table       string                   `json:"table"`
 	Destination string                   `json:"destination"`
@@ -118,7 +114,6 @@ type ChangeSetData = struct {
 }
 
 func main() {
-
 	//env
 	if err := godotenv.Load(); err != nil {
 		log.Fatal("Error loading .env file")
@@ -137,13 +132,13 @@ func main() {
 	TablesRelations := make(map[string][]map[string]interface{})
 	jsonSchemaData, err := os.ReadFile(SCHEMA_PATH)
 	if err != nil {
-		log.Println("Error reading SCHEMA_PATH")
+		log.Println("Error reading", SCHEMA_PATH)
 		panic(err)
 	}
 	var schema []SchemaObj
 	err = json.Unmarshal(jsonSchemaData, &schema)
 	if err != nil {
-		log.Println("Error parsing SCHEMA_PATH")
+		log.Println("Error parsing", SCHEMA_PATH)
 		panic(err)
 	}
 	log.Println("SCHEMA_PATH parsed")
@@ -357,7 +352,7 @@ func main() {
 	cj := cron.New()
 
 	// Schedule the cron job to run at schedule
-	_, err = cj.AddFunc("* * * * *", func() {
+	_, err = cj.AddFunc("*/2 * * * *", func() {
 		timestamp := time.Now().UTC().Truncate(time.Minute).Format(time.RFC3339)
 		key := "pgsync:" + timestamp
 		log.Println("Running cron job at", key)
@@ -373,9 +368,8 @@ func main() {
 			}
 
 			delete(ChangeSet, key)
-
-			log.Println("Processing data", len(data))
-
+			// log.Println("Processing data", len(data))
+			worker := make(chan struct{}, MAX_WORKER)
 			allBatches := make([]map[string]ChangeSetData, 0)
 			batchData := make(map[string]ChangeSetData)
 			tempCount := 0
@@ -393,9 +387,13 @@ func main() {
 			}
 			var wg sync.WaitGroup
 			for _, b := range allBatches {
+				worker <- struct{}{}
 				wg.Add(1)
 				go func(batch2 map[string]ChangeSetData) {
-					defer wg.Done()
+					defer func() {
+						<-worker
+						wg.Done()
+					}()
 					pgConn2, err := pgPool.Acquire(Ctx)
 					if err != nil {
 						log.Println("Failed to acquire connection from pool in cron job")
@@ -480,12 +478,10 @@ func main() {
 							log.Println("deleted in meiliesearch", resp)
 						}
 					}
-
 				}(b)
 			}
 			wg.Wait()
-
-			log.Println("Data processed in", time.Since(StartTime))
+			log.Println(key, "Data processed in", time.Since(StartTime))
 		}()
 	})
 	if err != nil {
@@ -638,11 +634,11 @@ FOR EACH ROW EXECUTE PROCEDURE pgsync_notify_trigger();`
 
 func getTimestamp() (timestamp string) {
 	now := time.Now().UTC().Truncate(time.Minute)
-	// minutes := now.Minute()
-	// mod := minutes % 2
-	// toIncrement := 2 - mod
+	minutes := now.Minute()
+	mod := minutes % 2
+	toIncrement := 2 - mod
 
-	now = now.Add(time.Duration(1) * time.Minute)
+	now = now.Add(time.Duration(toIncrement) * time.Minute)
 
 	timestamp = now.Format(time.RFC3339)
 	return
