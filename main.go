@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -40,6 +39,8 @@ const WATCH_CHANNEL = "pgsync_watchers"
 const MESSAGE_SEPARATOR = "__:)__"
 
 const MESSAGE_LENGTH_LIMIT = "2000"
+
+const BATCH_SIZE = 1000
 
 const CREATE_TRIGGER_FUNCTION_QUERY = `CREATE OR REPLACE FUNCTION pgsync_notify_trigger() RETURNS trigger AS $$
 DECLARE
@@ -88,24 +89,6 @@ BEGIN
   RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;`
-
-func getSetupTriggerOnTableQuery(table string) (query string) {
-	query = `CREATE OR REPLACE TRIGGER watched_pgsync_notify_trigger AFTER INSERT OR UPDATE OR DELETE ON "` + table + `"
-FOR EACH ROW EXECUTE PROCEDURE pgsync_notify_trigger();`
-	return
-}
-
-func getTimestamp() (timestamp string) {
-	now := time.Now().UTC().Truncate(time.Minute)
-	// minutes := now.Minute()
-	// mod := minutes % 2
-	// toIncrement := 2 - mod
-
-	now = now.Add(time.Duration(1) * time.Minute)
-
-	timestamp = now.Format(time.RFC3339)
-	return
-}
 
 type SchemaObj = struct {
 	Table       string                   `json:"table"`
@@ -373,7 +356,7 @@ func main() {
 	// Create a new cron job runner
 	cj := cron.New()
 
-	// Schedule the cron job to run every 10 minutes
+	// Schedule the cron job to run at schedule
 	_, err = cj.AddFunc("* * * * *", func() {
 		timestamp := time.Now().UTC().Truncate(time.Minute).Format(time.RFC3339)
 		key := "pgsync:" + timestamp
@@ -393,13 +376,11 @@ func main() {
 
 			log.Println("Processing data", len(data))
 
-			FinalData := make(map[string]map[string][]interface{})
-
 			allBatches := make([]map[string]ChangeSetData, 0)
 			batchData := make(map[string]ChangeSetData)
 			tempCount := 0
 			for p, d := range data {
-				if tempCount > 9 {
+				if tempCount > BATCH_SIZE-1 {
 					allBatches = append(allBatches, batchData)
 					batchData = make(map[string]ChangeSetData)
 					tempCount = 0
@@ -411,10 +392,8 @@ func main() {
 				allBatches = append(allBatches, batchData)
 			}
 			var wg sync.WaitGroup
-			var mutex sync.Mutex
-			for i2, b := range allBatches {
+			for _, b := range allBatches {
 				wg.Add(1)
-				fmt.Println(i2, len(b))
 				go func(batch2 map[string]ChangeSetData) {
 					defer wg.Done()
 					pgConn2, err := pgPool.Acquire(Ctx)
@@ -423,6 +402,11 @@ func main() {
 						return
 					}
 					defer pgConn2.Release()
+
+					FinalDataToInsert := make(map[string][]map[string]any)
+					FinalDataToUpdate := make(map[string][]map[string]any)
+					FinalDataToDelete := make(map[string][]string)
+
 					for _, d := range batch2 {
 						columns := TablesColumnsMap[d.Table]
 						if columns == nil {
@@ -431,11 +415,6 @@ func main() {
 						if len(columns) == 0 {
 							continue
 						}
-						mutex.Lock()
-						if _, ok := FinalData[d.Table]; !ok {
-							FinalData[d.Table] = make(map[string][]interface{})
-						}
-						mutex.Unlock()
 
 						switch d.Action {
 						case "insert":
@@ -450,13 +429,7 @@ func main() {
 								}
 								r := TablesRelations[d.Table]
 								processRelationsRecursively(Ctx, r, toInsert, pgConn2)
-
-								mutex.Lock()
-								if _, ok := FinalData[d.Table]["insert"]; !ok {
-									FinalData[d.Table]["insert"] = make([]interface{}, 0)
-								}
-								FinalData[d.Table]["insert"] = append(FinalData[d.Table]["insert"], toInsert)
-								mutex.Unlock()
+								FinalDataToInsert[d.Table] = append(FinalDataToInsert[d.Table], toInsert)
 							}
 						case "update":
 							{
@@ -470,21 +443,11 @@ func main() {
 								}
 								r := TablesRelations[d.Table]
 								processRelationsRecursively(Ctx, r, toUpdate, pgConn2)
-								mutex.Lock()
-								if _, ok := FinalData[d.Table]["update"]; !ok {
-									FinalData[d.Table]["update"] = make([]interface{}, 0)
-								}
-								FinalData[d.Table]["update"] = append(FinalData[d.Table]["update"], toUpdate)
-								mutex.Unlock()
+								FinalDataToUpdate[d.Table] = append(FinalDataToUpdate[d.Table], toUpdate)
 							}
 						case "delete":
 							{
-								mutex.Lock()
-								if _, ok := FinalData[d.Table]["delete"]; !ok {
-									FinalData[d.Table]["delete"] = make([]interface{}, 0)
-								}
-								FinalData[d.Table]["delete"] = append(FinalData[d.Table]["delete"], d.ID)
-								mutex.Unlock()
+								FinalDataToDelete[d.Table] = append(FinalDataToDelete[d.Table], d.ID)
 							}
 						default:
 							{
@@ -492,94 +455,35 @@ func main() {
 							}
 						}
 					}
+
+					for table, data := range FinalDataToInsert {
+						resp, err := meilisearchClient.Index(table).AddDocuments(data, "id")
+						if err != nil {
+							log.Println(err)
+						} else {
+							log.Println("inserted in meiliesearch", resp)
+						}
+					}
+					for table, data := range FinalDataToUpdate {
+						resp, err := meilisearchClient.Index(table).UpdateDocuments(data, "id")
+						if err != nil {
+							log.Println(err)
+						} else {
+							log.Println("Updated in meiliesearch", resp)
+						}
+					}
+					for table, ids := range FinalDataToDelete {
+						resp, err := meilisearchClient.Index(table).DeleteDocuments(ids)
+						if err != nil {
+							log.Println(err)
+						} else {
+							log.Println("deleted in meiliesearch", resp)
+						}
+					}
+
 				}(b)
 			}
 			wg.Wait()
-
-			for table, actionsMap := range FinalData {
-				var toInsert []interface{}
-				var toUpdate []interface{}
-				var toDelete = make([]string, 0)
-
-				for actionType, actions := range actionsMap {
-					switch actionType {
-					case "insert":
-						toInsert = actions
-					case "update":
-						toUpdate = actions
-					case "delete":
-						for _, someDoc := range actions {
-							docID, ok := someDoc.(string)
-							if !ok {
-								log.Println("failed typeassert")
-								continue
-							}
-							toDelete = append(toDelete, docID)
-						}
-					default:
-						log.Println("Unknown action type:", actionType)
-					}
-				}
-
-				if len(toInsert) > 0 {
-					var batchSize = 1000
-					var totalBatches = int(math.Ceil(float64(len(toInsert)) / float64(batchSize)))
-					for batchNumber := 0; batchNumber < totalBatches; batchNumber++ {
-						start := batchNumber * batchSize
-						end := start + batchSize
-						if end > len(toInsert) {
-							end = len(toInsert)
-						}
-						batch := toInsert[start:end]
-						resp, err := meilisearchClient.Index(table).AddDocuments(batch, "id")
-						if err != nil {
-							log.Println("Error inserting in meilisearch")
-							log.Println(err)
-						} else {
-							log.Println("inserted in meilisearch:", resp)
-						}
-					}
-				}
-
-				if len(toUpdate) > 0 {
-					var batchSize = 1000
-					var totalBatches = int(math.Ceil(float64(len(toUpdate)) / float64(batchSize)))
-					for batchNumber := 0; batchNumber < totalBatches; batchNumber++ {
-						start := batchNumber * batchSize
-						end := start + batchSize
-						if end > len(toUpdate) {
-							end = len(toUpdate)
-						}
-						batch := toUpdate[start:end]
-						resp, err := meilisearchClient.Index(table).UpdateDocuments(batch, "id")
-						if err != nil {
-							log.Println("Error updating in meilisearch")
-							log.Println(err)
-						} else {
-							log.Println("updated in meilisearch:", resp)
-						}
-					}
-				}
-				if len(toDelete) > 0 {
-					var batchSize = 1000
-					var totalBatches = int(math.Ceil(float64(len(toDelete)) / float64(batchSize)))
-					for batchNumber := 0; batchNumber < totalBatches; batchNumber++ {
-						start := batchNumber * batchSize
-						end := start + batchSize
-						if end > len(toDelete) {
-							end = len(toDelete)
-						}
-						batch := toDelete[start:end]
-						resp, err := meilisearchClient.Index(table).DeleteDocuments(batch)
-						if err != nil {
-							log.Println("Error deleting in meilisearch")
-							log.Println(err)
-						} else {
-							log.Println("deleted in meilisearch:", resp)
-						}
-					}
-				}
-			}
 
 			log.Println("Data processed in", time.Since(StartTime))
 		}()
@@ -724,4 +628,22 @@ func parseUUID(bytesSlice [16]uint8) string {
 	uuidString := fmt.Sprintf("%s-%s-%s-%s-%s", hexString[:8], hexString[8:12], hexString[12:16], hexString[16:20], hexString[20:])
 
 	return uuidString
+}
+
+func getSetupTriggerOnTableQuery(table string) (query string) {
+	query = `CREATE OR REPLACE TRIGGER watched_pgsync_notify_trigger AFTER INSERT OR UPDATE OR DELETE ON "` + table + `"
+FOR EACH ROW EXECUTE PROCEDURE pgsync_notify_trigger();`
+	return
+}
+
+func getTimestamp() (timestamp string) {
+	now := time.Now().UTC().Truncate(time.Minute)
+	// minutes := now.Minute()
+	// mod := minutes % 2
+	// toIncrement := 2 - mod
+
+	now = now.Add(time.Duration(1) * time.Minute)
+
+	timestamp = now.Format(time.RFC3339)
+	return
 }
