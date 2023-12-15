@@ -1,240 +1,52 @@
 [
   {
-    "table": "Brands",
-    "destination": "Brands",
-    "columns": [
-      "id",
-      "name",
-      "inActive",
-      "slug",
-      "imageId",
-      "createdAt",
-      "updatedAt"
-    ],
-    "relations": [
-      {
-        "table": "Resources",
-        "relation": "one-to-one",
-        "relationKey": "imageId",
-        "columns": ["id", "filename", "url", "cdnUrl"]
-      },
-      {
-        "table": "BrandData",
-        "relation": "one-to-many",
-        "relationKey": "brandId",
-        "columns": ["id", "brandId", "itemFieldId", "value"],
-        "relations": [
-          {
-            "table": "ItemFields",
-            "relation": "one-to-one",
-            "relationKey": "itemFieldId",
-            "columns": ["id", "name", "type", "fieldType"]
-          }
-        ]
-      }
-    ]
+    "table": "brands",
+    "destination": "brands",
+    "columns": ["id", "name", "isActive", "createdAt", "updatedAt"]
   },
   {
-    "table": "Categories",
-    "destination": "Categories",
-    "columns": [
-      "id",
-      "name",
-      "inActive",
-      "slug",
-      "parentId",
-      "imageId",
-      "createdAt",
-      "updatedAt"
-    ],
-    "relations": [
-      {
-        "table": "Resources",
-        "relation": "one-to-one",
-        "relationKey": "imageId",
-        "columns": ["id", "filename", "url", "cdnUrl"]
-      },
-      {
-        "table": "CategoryData",
-        "relation": "one-to-many",
-        "relationKey": "categoryId",
-        "columns": ["id", "categoryId", "itemFieldId", "value"],
-        "relations": [
-          {
-            "table": "ItemFields",
-            "relation": "one-to-one",
-            "relationKey": "itemFieldId",
-            "columns": ["id", "name", "type", "fieldType"]
-          }
-        ]
-      }
-    ]
+    "table": "categories",
+    "destination": "categories",
+    "columns": ["id", "name", "isActive", "createdAt", "updatedAt"]
   },
   {
-    "table": "Products",
-    "destination": "Products",
-    "columns": [
-      "id",
-      "slug",
-      "sku",
-      "formId",
-      "name",
-      "sku",
-      "inActive",
-      "type",
-      "brandId",
-      "parentProductId",
-      "createdAt",
-      "updatedAt"
-    ],
-    "relations": [
-      {
-        "table": "Brands",
-        "relation": "one-to-one",
-        "relationKey": "brandId",
-        "columns": ["id", "name", "slug"]
-      },
-      {
-        "table": "ProductCategories",
-        "relation": "one-to-many",
-        "relationKey": "productId",
-        "columns": ["id", "productId", "categoryId", "isPrimary"],
-        "relations": [
-          {
-            "table": "Categories",
-            "relation": "one-to-one",
-            "relationKey": "categoryId",
-            "columns": ["id", "name", "slug"]
-          }
-        ]
-      },
-      {
-        "table": "ProductData",
-        "relation": "one-to-many",
-        "relationKey": "productId",
-        "columns": ["id", "productId", "itemFieldId", "value"],
-        "relations": [
-          {
-            "table": "ItemFields",
-            "relation": "one-to-one",
-            "relationKey": "itemFieldId",
-            "columns": ["id", "name", "type", "fieldType"]
-          }
-        ]
-      },
-      {
-        "table": "ProductPricingLevels",
-        "relation": "one-to-many",
-        "relationKey": "productId",
-        "columns": [
-          "id",
-          "pricingLevelId",
-          "pricingQuantityId",
-          "productId",
-          "value"
-        ],
-        "relations": [
-          {
-            "table": "PricingLevels",
-            "relation": "one-to-one",
-            "relationKey": "pricingLevelId",
-            "columns": ["id", "name"]
-          },
-          {
-            "table": "ProductPricingQuantities",
-            "relation": "one-to-one",
-            "relationKey": "pricingQuantityId",
-            "columns": ["id", "quantity"]
-          }
-        ]
-      },
-      {
-        "table": "ProductMedia",
-        "relation": "one-to-many",
-        "relationKey": "productId",
-        "columns": ["id", "productId", "fileId"],
-        "relations": [
-          {
-            "table": "Files",
-            "relation": "one-to-one",
-            "relationKey": "fileId",
-            "columns": [
-              "id",
-              "name",
-              "sizeInBytes",
-              "type",
-              "encoding",
-              "mimeType",
-              "extension",
-              "resourceId"
-            ],
-            "relations": [
-              {
-                "table": "Resources",
-                "relation": "one-to-one",
-                "relationKey": "resourceId",
-                "columns": ["id", "filename", "url", "cdnUrl"]
-              }
-            ]
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "table": "WebsiteOptions",
-    "schema": "public",
+    "table": "products",
+    "destination": "products",
     "columns": [
       "id",
       "name",
-      "inputType",
-      "order",
-      "productId",
-      "inActive",
-      "required",
-      "isShippingOption",
+      "isActive",
       "price",
-      "cost",
+      "popularity",
+      "brandId",
       "createdAt",
       "updatedAt"
     ],
     "relations": [
       {
-        "table": "WebsiteOptionsSelections",
+        "table": "brands",
+        "relation": "one-to-one",
+        "relationKey": "brandId",
+        "columns": ["id", "name", "isActive", "createdAt", "updatedAt"]
+      },
+      {
+        "table": "products_categories",
         "relation": "one-to-many",
-        "relationKey": "websiteOptionId",
+        "relationKey": "productId",
         "columns": [
           "id",
-          "name",
-          "websiteOptionId",
-          "order",
-          "inActive",
-          "price",
-          "cost",
-          "imageId",
+          "productId",
+          "categoryId",
+          "isPrimary",
           "createdAt",
           "updatedAt"
         ],
         "relations": [
           {
-            "table": "Resources",
+            "table": "categories",
             "relation": "one-to-one",
-            "relationKey": "imageId",
-            "columns": ["id", "filename", "url", "cdnUrl"]
-          }
-        ]
-      },
-      {
-        "table": "WebsiteOptionData",
-        "relation": "one-to-many",
-        "relationKey": "websiteOptionId",
-        "columns": ["id", "websiteOptionId", "itemFieldId", "value"],
-        "relations": [
-          {
-            "table": "ItemFields",
-            "relation": "one-to-one",
-            "relationKey": "itemFieldId",
-            "columns": ["id", "name", "type", "fieldType"]
+            "relationKey": "categoryId",
+            "columns": ["id", "name", "isActive", "createdAt", "updatedAt"]
           }
         ]
       }

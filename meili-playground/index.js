@@ -7,14 +7,14 @@ const main = async () => {
     host: 'http://localhost:7700'
   })
 
-  const index = 'Products'
+  const index = 'products'
 
-  await client.index(index).updateFilterableAttributes(['Brands.name'])
+  await client.index(index).updateFilterableAttributes(['brands.name'])
 
   await delay(5000)
 
   const results = await client.index(index).search('iphone', {
-    filter: `Brands.name = "Apple"`
+    filter: `brands.name = "Apple"`
   })
   console.log(results)
 }
