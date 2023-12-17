@@ -116,7 +116,7 @@ type ChangeSetData = struct {
 func main() {
 	//env
 	if err := godotenv.Load(); err != nil {
-		log.Fatal("Error loading .env file")
+		log.Println("Error loading .env file")
 	}
 	PG_CONNECTION_STRING = os.Getenv("PG_CONNECTION_STRING")
 	MEILISEARCH_HOST = os.Getenv("MEILISEARCH_HOST")
@@ -507,11 +507,10 @@ func processRelationsRecursively(Ctx context.Context, r []map[string]interface{}
 		rRelation := s["relation"].(string)
 		rRelationKey := s["relationKey"].(string)
 		rRelations, ok := s["relations"].([]interface{})
-		var rRelations2 []map[string]interface{}
+		rRelations2 := make([]map[string]interface{}, 0)
 
 		if ok {
 			for _, rel := range rRelations {
-				rRelations2 = make([]map[string]interface{}, len(rRelations))
 				temp, ok2 := rel.(map[string]interface{})
 				if ok2 {
 					rRelations2 = append(rRelations2, temp)
